@@ -1,0 +1,38 @@
+name: Build for CloudLinux 8 (EL8)
+
+# This allows you to trigger the build manually from the GitHub Actions tab
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Compile Convex Backend
+    runs-on: ubuntu-latest
+    # This runs the entire job inside the exact OS your shared host uses
+    container: almalinux:8
+
+    steps:
+      - name: Install System Dependencies
+        run: |
+          dnf update -y
+          # Git is needed for checkout, development tools for compiling C/C++ dependencies
+          dnf groupinstall "Development Tools" -y
+          dnf install -y git cmake openssl-devel python3 wget curl
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Build Convex Backend (Release Mode)
+        run: cargo build --release
+
+      - name: Upload Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: convex-backend-el8
+          path: target/release/convex-local-backend
+          
