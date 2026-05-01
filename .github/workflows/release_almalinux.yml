@@ -10,96 +10,39 @@ jobs:
     container: almalinux:8
 
     steps:
-      - name: Install System Dependencies
+      - name: Install System Dependencies & C Compilers
         run: |
           dnf update -y
           dnf groupinstall "Development Tools" -y
-          dnf install -y \
-            git \
-            cmake \
-            openssl-devel \
-            python3 \
-            wget \
-            curl \
-            perl-IPC-Cmd \
-            perl-interpreter \
-            clang \
-            llvm-devel \
-            libffi-devel \
-            zlib-devel \
-            xz
+          dnf install -y git cmake openssl-devel python3 wget curl
+          
+          # Install the LATEST Node.js version
+          curl -fsSL https://rpm.nodesource.com/setup_current.x | bash -
+          dnf install -y nodejs
 
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install Node.js
-        run: |
-          curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
-          dnf install -y nodejs
-          node --version
-          npm --version
-
-      - name: Install just
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
-          just --version
-
-      - name: Install npm script dependencies
-        run: |
-          npm install --prefix scripts
-
-      - name: Install Rush and JS dependencies
-        run: |
-          cd npm-packages
-          node common/scripts/install-run-rush.js install
-        env:
-          RUSH_ALLOW_WARNINGS_IN_SUCCESSFUL_BUILD: "1"
-
-      - name: Rush Build (bundle npm packages)
-        run: |
-          cd npm-packages
-          node common/scripts/install-run-rush.js build --to convex --to node-executor --to udf-runtime --to system-udfs
-        env:
-          RUSH_ALLOW_WARNINGS_IN_SUCCESSFUL_BUILD: "1"
-
       - name: Install Rust
         run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: Set Rust environment
+      - name: Install 'just' Build Runner
         run: |
-          source "$HOME/.cargo/env"
-          echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
-          rustup show
+          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
 
-      - name: Configure OpenSSL for EL8
+      - name: Setup Convex Monorepo (via Just & Rush)
         run: |
-          echo "OPENSSL_DIR=/usr" >> $GITHUB_ENV
-          echo "OPENSSL_LIB_DIR=/usr/lib64" >> $GITHUB_ENV
-          echo "OPENSSL_INCLUDE_DIR=/usr/include" >> $GITHUB_ENV
-          echo "OPENSSL_STATIC=0" >> $GITHUB_ENV
-
-      - name: Check Rust toolchain version
-        run: |
-          rustc --version
-          cargo --version
+          npm install --prefix scripts
+          just rush install
 
       - name: Build Convex Backend (Release Mode)
-        run: |
-          cargo build --release --bin convex-local-backend
-        env:
-          CARGO_NET_GIT_FETCH_WITH_CLI: "true"
-          CARGO_BUILD_JOBS: "2"
-
-      - name: Verify binary
-        run: |
-          file target/release/convex-local-backend
-          ldd target/release/convex-local-backend
+        run: cargo build --release --bin convex-local-backend
 
       - name: Upload Binary Artifact
         uses: actions/upload-artifact@v4
         with:
           name: convex-backend-el8
           path: target/release/convex-local-backend
-          if-no-files-found: error
+          
