@@ -1,6 +1,5 @@
 name: Build for CloudLinux 8 (EL8)
 
-# This allows you to trigger the build manually from the GitHub Actions tab
 on:
   workflow_dispatch:
 
@@ -8,31 +7,72 @@ jobs:
   build:
     name: Compile Convex Backend
     runs-on: ubuntu-latest
-    # This runs the entire job inside the exact OS your shared host uses
     container: almalinux:8
 
     steps:
       - name: Install System Dependencies
         run: |
           dnf update -y
-          # Git is needed for checkout, development tools for compiling C/C++ dependencies
           dnf groupinstall "Development Tools" -y
-          dnf install -y git cmake openssl-devel python3 wget curl
+          dnf install -y \
+            git \
+            cmake \
+            openssl-devel \
+            openssl11-devel \
+            python3 \
+            wget \
+            curl \
+            perl-IPC-Cmd \
+            perl-FindBin \
+            clang \
+            llvm-devel \
+            libffi-devel \
+            zlib-devel \
+            xz
 
       - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Install Rust
         run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
+      - name: Set Rust environment
+        run: |
+          source "$HOME/.cargo/env"
+          echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
+          rustup show
+
+      - name: Configure OpenSSL for EL8
+        run: |
+          # EL8 ships OpenSSL 1.1 — point the build at it explicitly
+          echo "OPENSSL_DIR=/usr" >> $GITHUB_ENV
+          echo "OPENSSL_LIB_DIR=/usr/lib64" >> $GITHUB_ENV
+          echo "OPENSSL_INCLUDE_DIR=/usr/include" >> $GITHUB_ENV
+          echo "OPENSSL_STATIC=0" >> $GITHUB_ENV
+
+      - name: Check Rust toolchain version
+        run: |
+          rustc --version
+          cargo --version
+
       - name: Build Convex Backend (Release Mode)
-        run: cargo build --release
+        run: |
+          cargo build --release --bin convex-local-backend
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+          # Speeds up compilation with parallel codegen
+          CARGO_BUILD_JOBS: "2"
+
+      - name: Verify binary
+        run: |
+          file target/release/convex-local-backend
+          ldd target/release/convex-local-backend
 
       - name: Upload Binary Artifact
         uses: actions/upload-artifact@v4
         with:
           name: convex-backend-el8
           path: target/release/convex-local-backend
-          
+          if-no-files-found: error
