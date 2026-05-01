@@ -14,7 +14,13 @@ jobs:
         run: |
           dnf update -y
           dnf groupinstall "Development Tools" -y
-          dnf install -y git cmake openssl-devel python3 wget curl
+          
+          # We explicitly install python39 here instead of the default python3
+          dnf install -y git cmake openssl-devel python39 wget curl
+          
+          # Force the system to use Python 3.9 as the default Python engine
+          ln -sf /usr/bin/python3.9 /usr/bin/python3
+          ln -sf /usr/bin/python3.9 /usr/bin/python
           
           # Install Node.js 24
           curl -fsSL https://rpm.nodesource.com/setup_24.x | bash -
