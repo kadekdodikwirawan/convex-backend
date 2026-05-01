@@ -39,20 +39,27 @@ jobs:
           node --version
           npm --version
 
-      - name: Install Rush globally
+      - name: Install just
         run: |
-          npm install -g @microsoft/rush
-          echo "Rush installed"
+          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+          just --version
 
-      - name: Rush Install (install npm dependencies)
+      - name: Install npm script dependencies
         run: |
+          npm install --prefix scripts
+
+      - name: Install Rush and JS dependencies
+        run: |
+          # Rush lives under npm-packages/ — use the repo's own wrapper script
+          cd npm-packages
           node common/scripts/install-run-rush.js install
         env:
           RUSH_ALLOW_WARNINGS_IN_SUCCESSFUL_BUILD: "1"
 
       - name: Rush Build (bundle npm packages)
         run: |
-          node common/scripts/install-run-rush.js build
+          cd npm-packages
+          node common/scripts/install-run-rush.js build --to convex --to node-executor --to udf-runtime --to system-udfs
         env:
           RUSH_ALLOW_WARNINGS_IN_SUCCESSFUL_BUILD: "1"
 
