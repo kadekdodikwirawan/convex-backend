@@ -32,6 +32,30 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Install Node.js
+        run: |
+          curl -fsSL https://rpm.nodesource.com/setup_20.x | bash -
+          dnf install -y nodejs
+          node --version
+          npm --version
+
+      - name: Install Rush globally
+        run: |
+          npm install -g @microsoft/rush
+          rush --version
+
+      - name: Rush Install (install npm dependencies)
+        run: |
+          rush install
+        env:
+          RUSH_ALLOW_WARNINGS_IN_SUCCESSFUL_BUILD: "1"
+
+      - name: Rush Build (bundle npm packages)
+        run: |
+          rush build
+        env:
+          RUSH_ALLOW_WARNINGS_IN_SUCCESSFUL_BUILD: "1"
+
       - name: Install Rust
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
