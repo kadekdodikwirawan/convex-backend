@@ -42,17 +42,17 @@ jobs:
       - name: Install Rush globally
         run: |
           npm install -g @microsoft/rush
-          rush --version
+          echo "Rush installed"
 
       - name: Rush Install (install npm dependencies)
         run: |
-          rush install
+          node common/scripts/install-run-rush.js install
         env:
           RUSH_ALLOW_WARNINGS_IN_SUCCESSFUL_BUILD: "1"
 
       - name: Rush Build (bundle npm packages)
         run: |
-          rush build
+          node common/scripts/install-run-rush.js build
         env:
           RUSH_ALLOW_WARNINGS_IN_SUCCESSFUL_BUILD: "1"
 
