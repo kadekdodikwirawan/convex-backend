@@ -34,7 +34,7 @@ jobs:
 
       - name: Install Node.js
         run: |
-          curl -fsSL https://rpm.nodesource.com/setup_20.x | bash -
+          curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
           dnf install -y nodejs
           node --version
           npm --version
@@ -50,7 +50,6 @@ jobs:
 
       - name: Install Rush and JS dependencies
         run: |
-          # Rush lives under npm-packages/ — use the repo's own wrapper script
           cd npm-packages
           node common/scripts/install-run-rush.js install
         env:
