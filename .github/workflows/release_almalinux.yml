@@ -16,8 +16,8 @@ jobs:
           dnf groupinstall "Development Tools" -y
           dnf install -y git cmake openssl-devel python3 wget curl
           
-          # Install the LATEST Node.js version
-          curl -fsSL https://rpm.nodesource.com/setup_current.x | bash -
+          # Install Node.js 24
+          curl -fsSL https://rpm.nodesource.com/setup_24.x | bash -
           dnf install -y nodejs
 
       - name: Checkout Code
