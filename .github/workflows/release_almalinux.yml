@@ -18,12 +18,11 @@ jobs:
             git \
             cmake \
             openssl-devel \
-            openssl11-devel \
             python3 \
             wget \
             curl \
             perl-IPC-Cmd \
-            perl-FindBin \
+            perl-interpreter \
             clang \
             llvm-devel \
             libffi-devel \
@@ -46,7 +45,6 @@ jobs:
 
       - name: Configure OpenSSL for EL8
         run: |
-          # EL8 ships OpenSSL 1.1 — point the build at it explicitly
           echo "OPENSSL_DIR=/usr" >> $GITHUB_ENV
           echo "OPENSSL_LIB_DIR=/usr/lib64" >> $GITHUB_ENV
           echo "OPENSSL_INCLUDE_DIR=/usr/include" >> $GITHUB_ENV
@@ -62,7 +60,6 @@ jobs:
           cargo build --release --bin convex-local-backend
         env:
           CARGO_NET_GIT_FETCH_WITH_CLI: "true"
-          # Speeds up compilation with parallel codegen
           CARGO_BUILD_JOBS: "2"
 
       - name: Verify binary
