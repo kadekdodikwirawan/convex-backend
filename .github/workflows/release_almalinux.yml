@@ -81,10 +81,12 @@ jobs:
               findutils file ca-certificates \
            && dnf clean all
 
-          RUN curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal \
-           && toolchain="$(sed -n 's/channel = \"\\(.*\\)\"/\\1/p' /tmp/rust-toolchain)" \
-           && rustup toolchain install "$toolchain" --profile minimal \
-           && rustup default "$toolchain"
+          RUN set -eux; \
+           curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal; \
+           toolchain="$(awk -F '\"' '/^channel[[:space:]]*=/{print $2; exit}' /tmp/rust-toolchain | tr -d '\r')"; \
+           test -n "$toolchain"; \
+           rustup toolchain install "$toolchain" --profile minimal; \
+           rustup default "$toolchain"
 
           RUN curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
            && mkdir -p /opt \
