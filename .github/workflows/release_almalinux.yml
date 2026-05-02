@@ -1,54 +1,92 @@
-name: Build for CloudLinux 8 (EL8)
+name: Docker Build for CloudLinux 8 (EL8)
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
-    name: Compile Convex Backend
+  docker-build:
+    name: Build via Docker Buildx
     runs-on: ubuntu-latest
-    container: almalinux:8
 
     steps:
-      - name: Install System Dependencies & C Compilers
-        run: |
-          dnf update -y
-          dnf groupinstall "Development Tools" -y
-          
-          # We explicitly install python39 here instead of the default python3
-          dnf install -y git cmake openssl-devel python39 wget curl
-          
-          # Force the system to use Python 3.9 as the default Python engine
-          ln -sf /usr/bin/python3.9 /usr/bin/python3
-          ln -sf /usr/bin/python3.9 /usr/bin/python
-          
-          # Install Node.js 24
-          curl -fsSL https://rpm.nodesource.com/setup_24.x | bash -
-          dnf install -y nodejs
-
       - name: Checkout Code
+        # We must use fetch-depth: 0 so your 'git log' and 'git rev-parse' 
+        # commands have access to the repository history for the VERGEN variables
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Install Rust
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run Docker Buildx Pipeline
         run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          rm -rf dist-almalinux8
+          
+          # Your exact Docker Buildx command
+          docker buildx build --progress=plain --platform linux/amd64 \
+            --build-arg VERGEN_GIT_SHA="$(git rev-parse --short HEAD)" \
+            --build-arg VERGEN_GIT_COMMIT_TIMESTAMP="$(git log -1 --format='%aI')" \
+            --target export --output type=local,dest=./dist-almalinux8 -f- . <<'EOF'
+          # syntax=docker/dockerfile:1.7
+          FROM almalinux:8 AS builder
+          ARG VERGEN_GIT_SHA
+          ARG VERGEN_GIT_COMMIT_TIMESTAMP
+          ARG NODE_VERSION=22.22.2
 
-      - name: Install 'just' Build Runner
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+          ENV HOME=/root
+          ENV CARGO_HOME=/root/.cargo
+          ENV RUSTUP_HOME=/root/.rustup
+          ENV PATH=/root/.cargo/bin:/opt/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          ENV RUSH_BUILD_CACHE_ENABLED=0
+          ENV AWS_LC_SYS_PREBUILT_NASM=1
+          ENV VERGEN_GIT_SHA=${VERGEN_GIT_SHA}
+          ENV VERGEN_GIT_COMMIT_TIMESTAMP=${VERGEN_GIT_COMMIT_TIMESTAMP}
 
-      - name: Setup Convex Monorepo (via Just & Rush)
-        run: |
-          npm install --prefix scripts
-          just rush install
+          COPY rust-toolchain /tmp/rust-toolchain
 
-      - name: Build Convex Backend (Release Mode)
-        run: cargo build --release --bin convex-local-backend
+          RUN dnf -y install \
+              gcc gcc-c++ binutils make cmake clang llvm-devel \
+              curl git tar xz which perl python3 pkgconf-pkg-config \
+              findutils file ca-certificates \
+           && dnf clean all
+
+          RUN curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal \
+           && toolchain="$(sed -n 's/channel = "\(.*\)"/\1/p' /tmp/rust-toolchain)" \
+           && rustup toolchain install "$toolchain" --profile minimal \
+           && rustup default "$toolchain" \
+           && cargo --version \
+           && rustc --version
+
+          RUN curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+           && mkdir -p /opt \
+           && tar -xJf "node-v${NODE_VERSION}-linux-x64.tar.xz" -C /opt \
+           && ln -s "/opt/node-v${NODE_VERSION}-linux-x64" /opt/node \
+           && ln -sf /opt/node/bin/node /usr/local/bin/node \
+           && ln -sf /opt/node/bin/npm /usr/local/bin/npm \
+           && ln -sf /opt/node/bin/npx /usr/local/bin/npx \
+           && rm -f "node-v${NODE_VERSION}-linux-x64.tar.xz" \
+           && node --version \
+           && npm --version
+
+          WORKDIR /convex
+          COPY . .
+
+          RUN npm ci --prefix scripts
+          RUN ./scripts/rush_from_npm-packages.sh install
+          RUN unset ROCKSDB_LIB_DIR SNAPPY_LIB_DIR SODIUM_USE_PKG_CONFIG \
+           && cargo build --release -p local_backend --bin convex-local-backend \
+           && strip target/release/convex-local-backend \
+           && mkdir -p /out \
+           && cp target/release/convex-local-backend /out/
+
+          FROM scratch AS export
+          COPY --from=builder /out/ /
+          EOF
 
       - name: Upload Binary Artifact
         uses: actions/upload-artifact@v4
         with:
           name: convex-backend-el8
-          path: target/release/convex-local-backend
-          
+          # Pointing directly to the folder Docker dropped the binary into
+          path: dist-almalinux8/convex-local-backend
