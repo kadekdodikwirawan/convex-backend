@@ -77,8 +77,10 @@ jobs:
 
           RUN dnf -y install \
               gcc gcc-c++ binutils make cmake clang llvm-devel \
-              curl git tar xz which perl python3 pkgconf-pkg-config \
+              curl git tar xz which perl python39 pkgconf-pkg-config \
               findutils file ca-certificates \
+           && ln -sf /usr/bin/python3.9 /usr/local/bin/python3 \
+           && python3 --version \
            && dnf clean all
 
           RUN set -eux; \
