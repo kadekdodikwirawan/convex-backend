@@ -1,33 +1,63 @@
-name: Docker Build for CloudLinux 8 (EL8)
+name: Release AlmaLinux Backend
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Create a GitHub release with the AlmaLinux 8 binary"
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        description: "Optional release tag override"
+        required: false
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
 
 jobs:
-  docker-build:
-    name: Build via Docker Buildx
+  build:
+    name: Build AlmaLinux 8 backend
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
-        # We must use fetch-depth: 0 so your 'git log' and 'git rev-parse' 
-        # commands have access to the repository history for the VERGEN variables
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - name: Check out code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
-      - name: Run Docker Buildx Pipeline
+      - name: Compute release metadata
+        id: meta
+        shell: bash
+        env:
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
-          rm -rf dist-almalinux8
-          
-          # Your exact Docker Buildx command
-          docker buildx build --progress=plain --platform linux/amd64 \
-            --build-arg VERGEN_GIT_SHA="$(git rev-parse --short HEAD)" \
-            --build-arg VERGEN_GIT_COMMIT_TIMESTAMP="$(git log -1 --format='%aI')" \
-            --target export --output type=local,dest=./dist-almalinux8 -f- . <<'EOF'
+          set -euo pipefail
+          SHORT_SHA="$(git rev-parse --short=9 HEAD)"
+          BUILD_DATE="$(date -u +'%Y-%m-%d')"
+          RELEASE_NAME="AlmaLinux 8 ${BUILD_DATE}-${SHORT_SHA}"
+          TARGET_TRIPLE="x86_64-unknown-linux-gnu"
+          ZIP_NAME="convex-local-backend-${TARGET_TRIPLE}-almalinux8.zip"
+          TAG_NAME="${INPUT_RELEASE_TAG:-almalinux8-${BUILD_DATE}-${SHORT_SHA}}"
+
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "build_date=$BUILD_DATE" >> "$GITHUB_OUTPUT"
+          echo "release_name=$RELEASE_NAME" >> "$GITHUB_OUTPUT"
+          echo "target_triple=$TARGET_TRIPLE" >> "$GITHUB_OUTPUT"
+          echo "zip_name=$ZIP_NAME" >> "$GITHUB_OUTPUT"
+          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Write AlmaLinux Dockerfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/Dockerfile.almalinux" <<'EOF'
           # syntax=docker/dockerfile:1.7
           FROM almalinux:8 AS builder
           ARG VERGEN_GIT_SHA
@@ -52,11 +82,9 @@ jobs:
            && dnf clean all
 
           RUN curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal \
-           && toolchain="$(sed -n 's/channel = "\(.*\)"/\1/p' /tmp/rust-toolchain)" \
+           && toolchain="$(sed -n 's/channel = \"\\(.*\\)\"/\\1/p' /tmp/rust-toolchain)" \
            && rustup toolchain install "$toolchain" --profile minimal \
-           && rustup default "$toolchain" \
-           && cargo --version \
-           && rustc --version
+           && rustup default "$toolchain"
 
           RUN curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
            && mkdir -p /opt \
@@ -65,9 +93,7 @@ jobs:
            && ln -sf /opt/node/bin/node /usr/local/bin/node \
            && ln -sf /opt/node/bin/npm /usr/local/bin/npm \
            && ln -sf /opt/node/bin/npx /usr/local/bin/npx \
-           && rm -f "node-v${NODE_VERSION}-linux-x64.tar.xz" \
-           && node --version \
-           && npm --version
+           && rm -f "node-v${NODE_VERSION}-linux-x64.tar.xz"
 
           WORKDIR /convex
           COPY . .
@@ -84,9 +110,58 @@ jobs:
           COPY --from=builder /out/ /
           EOF
 
-      - name: Upload Binary Artifact
+      - name: Build AlmaLinux binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist-almalinux8
+
+          docker buildx build \
+            --progress=plain \
+            --platform linux/amd64 \
+            --build-arg VERGEN_GIT_SHA="${GITHUB_SHA}" \
+            --build-arg VERGEN_GIT_COMMIT_TIMESTAMP="$(git log -1 --format='%aI')" \
+            --cache-from type=gha,scope=release-almalinux \
+            --cache-to type=gha,mode=max,scope=release-almalinux \
+            --target export \
+            --output type=local,dest=./dist-almalinux8 \
+            -f "$RUNNER_TEMP/Dockerfile.almalinux" .
+
+      - name: Smoke test artifact on AlmaLinux 8
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x dist-almalinux8/convex-local-backend
+          file dist-almalinux8/convex-local-backend
+          docker run --rm \
+            -v "$PWD/dist-almalinux8:/artifacts:ro" \
+            almalinux:8 \
+            bash -lc 'ldd /artifacts/convex-local-backend && /artifacts/convex-local-backend --help >/dev/null'
+
+      - name: Package artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f "${{ steps.meta.outputs.zip_name }}"
+          zip -j "${{ steps.meta.outputs.zip_name }}" dist-almalinux8/convex-local-backend
+
+      - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: convex-backend-el8
-          # Pointing directly to the folder Docker dropped the binary into
-          path: dist-almalinux8/convex-local-backend
+          name: convex-local-backend-almalinux8-x86_64
+          path: |
+            dist-almalinux8/convex-local-backend
+            ${{ steps.meta.outputs.zip_name }}
+          if-no-files-found: error
+
+      - name: Create GitHub release
+        if: ${{ inputs.publish_release }}
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag_name }}
+          name: ${{ steps.meta.outputs.release_name }}
+          draft: false
+          prerelease: true
+          files: |
+            ${{ steps.meta.outputs.zip_name }}
+            LICENSE.md
