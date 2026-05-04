@@ -106,9 +106,12 @@ jobs:
           RUN ./scripts/rush_from_npm-packages.sh install
           RUN unset ROCKSDB_LIB_DIR SNAPPY_LIB_DIR SODIUM_USE_PKG_CONFIG \
            && cargo build --release -p local_backend --bin convex-local-backend \
+           && cargo build --release -p keybroker --bin generate_key \
            && strip target/release/convex-local-backend \
+           && strip target/release/generate_key \
            && mkdir -p /out \
-           && cp target/release/convex-local-backend /out/
+           && cp target/release/convex-local-backend /out/ \
+           && cp target/release/generate_key /out/
 
           FROM scratch AS export
           COPY --from=builder /out/ /
@@ -136,18 +139,22 @@ jobs:
         run: |
           set -euo pipefail
           test -x dist-almalinux8/convex-local-backend
+          test -x dist-almalinux8/generate_key
           file dist-almalinux8/convex-local-backend
+          file dist-almalinux8/generate_key
           docker run --rm \
             -v "$PWD/dist-almalinux8:/artifacts:ro" \
             almalinux:8 \
-            bash -lc 'ldd /artifacts/convex-local-backend && /artifacts/convex-local-backend --help >/dev/null'
+            bash -lc 'ldd /artifacts/convex-local-backend && ldd /artifacts/generate_key && /artifacts/convex-local-backend --help >/dev/null && /artifacts/generate_key convex-self-hosted 4361726e697461732c206c69746572616c6c79206d65616e696e6720226c6974 >/dev/null'
 
       - name: Package artifact
         shell: bash
         run: |
           set -euo pipefail
           rm -f "${{ steps.meta.outputs.zip_name }}"
-          zip -j "${{ steps.meta.outputs.zip_name }}" dist-almalinux8/convex-local-backend
+          zip -j "${{ steps.meta.outputs.zip_name }}" \
+            dist-almalinux8/convex-local-backend \
+            dist-almalinux8/generate_key
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
@@ -155,6 +162,7 @@ jobs:
           name: convex-local-backend-almalinux8-x86_64
           path: |
             dist-almalinux8/convex-local-backend
+            dist-almalinux8/generate_key
             ${{ steps.meta.outputs.zip_name }}
           if-no-files-found: error
 
